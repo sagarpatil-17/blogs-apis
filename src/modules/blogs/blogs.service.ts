@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { PrismaService } from "src/prisma-service/prisma.service";
+import { PrismaService } from "src/database/prisma.service";
 import { CreateBlogDto } from "./dto/createBlog.dto";
 import { UpdateBlogDto } from "./dto/updateBlog.dto";
 import { MailerService } from "@nestjs-modules/mailer";
