@@ -3,6 +3,7 @@ import { PrismaService } from "src/database/prisma.service";
 import { CreateBlogDto } from "./dto/createBlog.dto";
 import { UpdateBlogDto } from "./dto/updateBlog.dto";
 import { MailerService } from "@nestjs-modules/mailer";
+import { CacheService } from "src/database/cache.service";
 
 @Injectable()
 export class BlogsService {
@@ -14,48 +15,73 @@ export class BlogsService {
         return this.images[Math.floor(Math.random() * this.images.length)];
     }
 
-    constructor(private readonly prisma: PrismaService, private mail: MailerService) { }
+    constructor(private readonly prisma: PrismaService, private readonly cache: CacheService, private mail: MailerService) { }
 
     async getBlogs() {
-        const [featured_blogs, latest_blogs, frontend_blogs, backend_blogs, fullstack_blogs] = await this.prisma.$transaction([
-            this.prisma.blogDetails.findMany({
-                where: { tags: { has: 'featured' } },
-                include: { author: true },
-                take: 2,
-                orderBy: { createdAt: 'desc' }
-            }),
-            this.prisma.blogDetails.findMany({
-                include: { author: true },
-                take: 3,
-                orderBy: { createdAt: 'desc' }
-            }),
-            this.prisma.blogDetails.findMany({
-                where: { tags: { has: 'frontend' } },
-                include: { author: true },
-                take: 3,
-                orderBy: { createdAt: 'desc' }
-            }),
-            this.prisma.blogDetails.findMany({
-                where: { tags: { has: 'backend' } },
-                include: { author: true },
-                take: 3,
-                orderBy: { createdAt: 'desc' }
-            }),
-            this.prisma.blogDetails.findMany({
-                where: { tags: { has: 'fullstack' } },
-                include: { author: true },
-                take: 3,
-                orderBy: { createdAt: 'desc' }
-            })
-        ]);
+        const cacheKey = 'blogs_homepage_data';
 
-        return {
-            featured_blogs: featured_blogs.map(blog => { return { ...blog, image: this.randomImg() } }),
-            latest_blogs: latest_blogs.map(blog => { return { ...blog, image: this.randomImg() } }),
-            frontend_blogs: frontend_blogs.map(blog => { return { ...blog, image: this.randomImg() } }),
-            backend_blogs: backend_blogs.map(blog => { return { ...blog, image: this.randomImg() } }),
-            fullstack_blogs: fullstack_blogs.map(blog => { return { ...blog, image: this.randomImg() } }),
+        //  Check if the raw data exists in Upstash Redis Cloud
+        let rawData = await this.cache.get<any>(cacheKey);
+
+        //  Cache Miss: Fetch data from Prisma Database if it's not in Redis
+        if (!rawData) {
+            console.log('⏳ Cache Miss. Running heavy Prisma transaction...');
+
+            const [featured_blogs, latest_blogs, frontend_blogs, backend_blogs, fullstack_blogs] =
+                await this.prisma.$transaction([
+                    this.prisma.blogDetails.findMany({
+                        where: { tags: { has: 'featured' } },
+                        include: { author: true },
+                        take: 2,
+                        orderBy: { createdAt: 'desc' }
+                    }),
+                    this.prisma.blogDetails.findMany({
+                        include: { author: true },
+                        take: 3,
+                        orderBy: { createdAt: 'desc' }
+                    }),
+                    this.prisma.blogDetails.findMany({
+                        where: { tags: { has: 'frontend' } },
+                        include: { author: true },
+                        take: 3,
+                        orderBy: { createdAt: 'desc' }
+                    }),
+                    this.prisma.blogDetails.findMany({
+                        where: { tags: { has: 'backend' } },
+                        include: { author: true },
+                        take: 3,
+                        orderBy: { createdAt: 'desc' }
+                    }),
+                    this.prisma.blogDetails.findMany({
+                        where: { tags: { has: 'fullstack' } },
+                        include: { author: true },
+                        take: 3,
+                        orderBy: { createdAt: 'desc' }
+                    })
+                ]);
+
+            rawData = {
+                featured_blogs,
+                latest_blogs,
+                frontend_blogs,
+                backend_blogs,
+                fullstack_blogs
+            };
+
+            //  Save the raw database results to Upstash (e.g., cached for 10 minutes / 600 seconds)
+            await this.cache.set(cacheKey, rawData);
+        } else {
+            console.log('🚀 Serving raw blog records from Upstash Redis!');
         }
+
+        //  Always apply dynamic logic (like randomImg) on the raw array collections
+        return {
+            featured_blogs: rawData.featured_blogs.map(blog => ({ ...blog, image: this.randomImg() })),
+            latest_blogs: rawData.latest_blogs.map(blog => ({ ...blog, image: this.randomImg() })),
+            frontend_blogs: rawData.frontend_blogs.map(blog => ({ ...blog, image: this.randomImg() })),
+            backend_blogs: rawData.backend_blogs.map(blog => ({ ...blog, image: this.randomImg() })),
+            fullstack_blogs: rawData.fullstack_blogs.map(blog => ({ ...blog, image: this.randomImg() })),
+        };
     }
 
     async getBlogsByTags(tag: string) {
@@ -139,7 +165,7 @@ export class BlogsService {
                 )
             );
         } catch (error) {
-            console.error('Error sending email:', error.message);
+            console.error('Error sending email:', error);
         }
 
         return { message: 'Blog created successfully!' };
