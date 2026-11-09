@@ -8,6 +8,8 @@ import { CronModule } from './tasks/cron.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { TestModule } from './modules/test/test.module';
+import { CacheModule } from '@nestjs/cache-manager';
+import { redisStore } from 'cache-manager-redis-yet';
 
 @Module({
   imports: [
@@ -30,6 +32,17 @@ import { TestModule } from './modules/test/test.module';
             pass: config.getOrThrow('SMTP_AUTH_PASS'),
           },
         },
+      }),
+    }),
+    CacheModule.registerAsync({
+      isGlobal: true,
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: async (configService: ConfigService) => ({
+        store: await redisStore({
+          url: configService.get<string>('REDIS_URL'),
+          ttl: 5 * 60 * 1000,
+        }),
       }),
     }),
     ConfigModule.forRoot({ isGlobal: true })],
