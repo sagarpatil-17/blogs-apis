@@ -19,10 +19,10 @@ export class BlogsService {
     constructor(private readonly prisma: PrismaService, private readonly cache: CacheService, private mail: MailerService) { }
 
     async getBlogs() {
-        // 1. Check if the raw data exists in Upstash Redis Cloud
+        // Check if the raw data exists in Upstash Redis Cloud
         let rawData: any = await this.cache.get(this.cacheKey);
 
-        // 2. Cache Miss: Fetch data from Prisma Database if it's not in Redis
+        // Cache Miss: Fetch data from Prisma Database if it's not in Redis
         if (!rawData) {
             console.log('⏳ Cache Miss. Running heavy Prisma transaction...');
 
@@ -67,10 +67,8 @@ export class BlogsService {
                 fullstack_blogs
             };
 
-            // 🟢 FIX: Pass 600 SECONDS (10 minutes) instead of 600000 milliseconds
-            // This now correctly aligns with your CacheService implementation
             try {
-                await this.cache.set(this.cacheKey, rawData, 600);
+                await this.cache.set(this.cacheKey, rawData);
                 console.log('✅ Successfully triggered data payload write to Redis Cloud!');
             } catch (cacheError) {
                 console.error('❌ Redis cache.set invocation failed:', cacheError);
@@ -79,13 +77,13 @@ export class BlogsService {
             console.log('🚀 Serving raw blog records from Upstash Redis!');
         }
 
-        // 3. Fallback Safety: In case rawData was parsed incorrectly, ensure it exists
+        // Fallback Safety: In case rawData was parsed incorrectly, ensure it exists
         if (!rawData || !rawData.featured_blogs) {
             console.warn('⚠️ Cache payload structure invalid or empty. Returning empty sets.');
             return { featured_blogs: [], latest_blogs: [], frontend_blogs: [], backend_blogs: [], fullstack_blogs: [] };
         }
 
-        // 4. Always apply dynamic logic (like randomImg) on the raw array collections
+        // Always apply dynamic logic (like randomImg) on the raw array collections
         return {
             featured_blogs: rawData.featured_blogs.map(blog => ({ ...blog, image: this.randomImg() })),
             latest_blogs: rawData.latest_blogs.map(blog => ({ ...blog, image: this.randomImg() })),
