@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { PrismaService } from "src/prisma-service/prisma.service";
+import { PrismaService } from "src/database/prisma.service";
 import { SubscribeDto, UserDto } from "./dto/user.dto";
 import * as bcrypt from 'bcrypt';
 import { ObjectId } from "mongodb";

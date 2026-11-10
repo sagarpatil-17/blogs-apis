@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
-import { PrismaService } from "src/prisma-service/prisma.service";
+import { PrismaService } from "src/database/prisma.service";
 
 @Injectable()
 export class CronService {

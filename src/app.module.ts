@@ -8,9 +8,11 @@ import { CronModule } from './tasks/cron.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { TestModule } from './modules/test/test.module';
+import { DatabaseModule } from './database/database.module';
 
 @Module({
   imports: [
+    DatabaseModule,
     TestModule,
     AuthModule,
     BlogsModule,
