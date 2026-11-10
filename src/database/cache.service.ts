@@ -1,6 +1,6 @@
 // src/database/cache.service.ts
 import { Injectable } from '@nestjs/common';
-import { Redis } from '@upstash/redis';
+import { Redis, SetCommandOptions } from '@upstash/redis';
 
 @Injectable()
 export class CacheService {
@@ -37,11 +37,14 @@ export class CacheService {
         }
     }
 
-    async set(key: string, value: any, ttlInSeconds = 300): Promise<void> {
-        // Background fire-and-forget execution so the client response isn't blocked
-        this.withTimeout(this.client.set(key, value, { ex: ttlInSeconds }))
+    async set(key: string, value: any, ttlInSeconds?: number): Promise<void> {
+        // Cast the dynamic object directly to SetCommandOptions
+        const options: SetCommandOptions = ttlInSeconds !== undefined ? { ex: ttlInSeconds } : {};
+
+        this.withTimeout(this.client.set(key, value, options))
             .then(() => {
-                console.log(`✅ [Redis Cache] Saved key successfully: "${key}" (TTL: ${ttlInSeconds}s)`);
+                const ttlLog = ttlInSeconds !== undefined ? `TTL: ${ttlInSeconds}s` : 'Persistent';
+                console.log(`✅ [Redis Cache] Saved key successfully: "${key}" (${ttlLog})`);
             })
             .catch((error: any) => {
                 console.error(`⚠️ Async Redis SET skipped (${error.message}).`);
