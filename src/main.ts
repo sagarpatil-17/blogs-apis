@@ -20,6 +20,7 @@ async function bootstrap() {
   SwaggerModule.setup('api', app, document); // Swagger UI will be available at /api
 
   const port = process.env.PORT || 3000; // Use the environment port for Vercel
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
+  console.log(`Application is running on: ${await app.getUrl()}`);
 }
 bootstrap();
