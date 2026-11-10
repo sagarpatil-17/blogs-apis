@@ -1,89 +1,59 @@
 // src/database/cache.service.ts
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
-import Redis from 'ioredis';
+import { Injectable } from '@nestjs/common';
+import { Redis } from '@upstash/redis';
 
 @Injectable()
-export class CacheService implements OnModuleDestroy {
-    public readonly client: Redis;
+export class CacheService {
+    private readonly client: Redis;
 
     constructor() {
-        const redisUrl = process.env.REDIS_URL;
-
-        this.client = new Redis(redisUrl, {
-            maxRetriesPerRequest: null,
-            enableOfflineQueue: true,
-
-            // 🛠️ 1. Force TLS settings (Required for secure cloud links like Upstash)
-            tls: redisUrl.startsWith('rediss://') ? {} : undefined,
-
-            // 🛠️ 2. Add TCP keepAlive to prevent Upstash from closing the line due to inactivity
-            kafka: undefined, // avoids structural overlap
-            keepAlive: 30000, // Pings every 30 seconds to keep the line active
-
-            retryStrategy(times) {
-                // Back off the retry window gradually so it doesn't spam requests when offline
-                const delay = Math.min(times * 100, 5000);
-                return delay;
-            },
-        } as any);
-
-        // 🛠️ 3. Change console.warn to a clean single line so it doesn't flood your screen
-        this.client.on('error', (err) => {
-            // Quietly logs the disconnect without spamming full stack details
-            if (err.message.includes('ECONNRESET')) {
-                // Option to comment this line out entirely once you confirm it works
-                console.log('🔄 Upstash connection reset detected. Reconnecting background socket...');
-            } else {
-                console.warn('⚠️ Redis Connection Error:', err.message);
-            }
+        // Initialize the stateless HTTP client using Upstash credentials
+        this.client = new Redis({
+            url: process.env.UPSTASH_REDIS_REST_URL || '',
+            token: process.env.UPSTASH_REDIS_REST_TOKEN || '',
         });
 
-        this.client.on('connect', () => {
-            console.log('🚀 Connected securely to Upstash Redis Cloud.');
-        });
+        console.log('🚀 Stateless Upstash HTTP Caching Client Initialized.');
     }
 
-    // UNIVERSAL TIMEOUT WRAPPER
-    private async withTimeout<T>(promise: Promise<T>, ms = 1000): Promise<T> {
+    // Universal HTTP safety wrapper with a strict timeout window
+    private async withTimeout<T>(promise: Promise<T>, ms = 2500): Promise<T> {
         return Promise.race([
             promise,
             new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('Redis timeout reached')), ms)
+                setTimeout(() => reject(new Error(`Upstash HTTP Timeout of ${ms}ms reached`)), ms)
             ),
         ]);
     }
 
     async get<T>(key: string): Promise<T | null> {
         try {
-            const data = await this.withTimeout(this.client.get(key));
-            if (!data) return null;
-            return JSON.parse(data) as T;
-        } catch (error) {
-            console.error('⚠️ Redis GET bypassed (Timeout/Offline). Defaulting to Prisma DB.');
+            // Upstash HTTP automatically handles JSON parsing under the hood
+            const data = await this.withTimeout(this.client.get<T>(key));
+            return data;
+        } catch (error: any) {
+            console.error(`⚠️ Redis GET bypassed (${error.message}). Serving from Prisma DB.`);
             return null;
         }
     }
 
     async set(key: string, value: any, ttlInSeconds = 300): Promise<void> {
-        try {
-            const stringData = typeof value === 'object' ? JSON.stringify(value) : value;
-            await this.withTimeout(this.client.set(key, stringData, 'EX', ttlInSeconds));
-        } catch (error) {
-            console.error('⚠️ Redis SET bypassed (Timeout/Offline).');
-        }
+        // Background fire-and-forget execution so the client response isn't blocked
+        this.withTimeout(this.client.set(key, value, { ex: ttlInSeconds }))
+            .then(() => {
+                console.log(`✅ [Redis Cache] Saved key successfully: "${key}" (TTL: ${ttlInSeconds}s)`);
+            })
+            .catch((error: any) => {
+                console.error(`⚠️ Async Redis SET skipped (${error.message}).`);
+            });
     }
 
     async del(key: string): Promise<void> {
         try {
-            // If Redis takes > 1 second to respond, abort it and move on
             await this.withTimeout(this.client.del(key));
-            console.log(`🧹 Cache cleared successfully for key: ${key}`);
-        } catch (error) {
-            console.error(`⚠️ Redis DEL bypassed for key ${key} (Timeout/Offline).`);
+            console.log(`🧹 Cache cleared: ${key}`);
+        } catch (error: any) {
+            console.error(`⚠️ Redis DEL bypassed (${error.message}).`);
         }
-    }
-
-    onModuleDestroy() {
-        this.client.disconnect();
     }
 }
